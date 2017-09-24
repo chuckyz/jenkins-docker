@@ -1,0 +1,87 @@
+---
+- hosts: all
+  become: yes
+  become_user: root
+  vars:
+    prereqs:
+        - java-1.8.0-openjdk
+        - yum-utils
+        - device-mapper-persistent-data
+        - lvm2
+        
+  tasks:
+    ### BEGIN PREREQS ###
+    # Uses prereqs variable
+    - name: setup initial rpm gpg key
+      rpm_key:
+        key: "/etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7"
+        state: present
+
+    - name: install epel
+      yum:
+        name: epel-release
+        state: latest
+
+    - name: install prereqs
+      yum:
+        name: "{{ item }}"
+        state: latest
+      with_items: "{{ prereqs }}"
+    ### END PREREQS ###
+
+    # Following https://docs.docker.com/engine/installation/linux/docker-ce/centos/#install-using-the-repository
+    # Hence why raw command is used over yum/yum_repository
+    ### BEGIN DOCKER ###
+    - name: install docker repo
+      command: yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+      args:
+        creates: /etc/yum.repos.d/docker-ce.repo
+
+    - name: install docker
+      yum:
+        name: docker-ce
+        state: latest
+
+    - name: start and enable docker
+      service: 
+        name: docker
+        state: started
+        enabled: yes
+    
+    - name: test docker
+      command: docker run hello-world
+    ### END DOCKER ###
+
+    ### BEGIN JENKINS ###
+    - name: setup jenkins repo
+      get_url:
+        url: "http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo"
+        dest: "/etc/yum.repos.d/jenkins.repo"
+
+    - name: setup rpm gpg key for jenkins repo
+      rpm_key:
+        key: "http://pkg.jenkins-ci.org/redhat-stable/jenkins-ci.org.key"
+        state: present
+
+    - name: install jenkins
+      yum:
+        name: jenkins
+        state: latest
+
+    - name: start and enable jenkins
+      service:
+        name: jenkins
+        state: started
+        enabled: yes
+
+    - name: get jenkins initial admin password
+      command: cat /var/lib/jenkins/secrets/initialAdminPassword
+      args:
+        removes: "/var/lib/jenkins/secrets/initialAdminPassword"
+      register: jenkins_initial_pw
+
+    - name: print jenkins initial admin password
+      debug:
+        msg: "{{ jenkins_initial_pw.stdout_lines }}"
+      when: jenkins_initial_pw.stdout != ''
+    ### END JENKINS ###
